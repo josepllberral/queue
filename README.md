@@ -1,27 +1,38 @@
 # queue
 
 Version: 0.1
+
 Date: 2015 February 27
+
 Author: Josep Ll. Berral-Garcia
+
 License: GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
 
 ## Description
-Executes a command, allowing to queue others after it, or running up to k simultaneous and queuing the next ones. Sending commands to queue while another queue exists, send the new ones to the existing queue.
+Executes a command, allowing to queue others after it, or running up to _k_ simultaneous and queuing the next ones. Sending commands to queue while another queue exists, send the new ones to the existing queue, also from different ttys.
 
 ## Usage
 ```
-$ queue -c shell_command -p simultaneous (default = 3) -v (verbose)
+$ queue -c shell_command [OPTIONS]
+
+-c command Command to execute or to put in queue.
+-p <value> Maximum number of commands simultaneuos.
+-v         Displays information and debug messages.
+-n         Queue is alive and ready after finishing current commands.
+-h         Shows the help message and finishes.
 ```
 
 ## Example
 ```
-$ queue -c "echo Hello1; sleep 10; echo Bye1" -p 2
-$ queue -c "echo Hello2; sleep 10; echo Bye2"
-$ queue -c "echo Hello3; sleep 10; echo Bye3"
-$ queue -c "echo Hello4; sleep 10; echo Bye4"
+$ queue -c "echo Command1; sleep 10; echo EndCommand1" -p 2 &
+$ queue -c "echo Command2; sleep 10; echo EndCommand2"
+$ queue -c "echo Command3; sleep 10; echo EndCommand3"
+$ queue -c "echo Command4; sleep 10; echo EndCommand4"
 ```
 
 The first 'queue' creates the queue, with 2 running slots. The two first commands are executed immediately, while the third is not executed until one of the two firsts ends, and so on. The first queue is alive as far as there are commands in queue or running. After that, the queue is removed.
+
+If option "-n" is added to the first command, the queue will not end and will remain listening for new commands, or expecting a SIGTERM (please, be polite).
 
 ## Compile
 Classical gcc with pthreads
@@ -35,3 +46,4 @@ $ gcc queue.c -o queue -pthread
 - Stack execution instead of queue
 - Named queues in system
 - Queues with priority
+

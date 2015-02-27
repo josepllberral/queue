@@ -10,27 +10,13 @@
 /* Description: Executes a command, allowing to queue others after it, or     */
 /*              running up to k simultaneous and queuing the next ones.       */
 /*              Sending commands to queue while another queue exists, send    */
-/*              the new ones to the existing queue.                           */
+/*              the new ones to the existing queue, also from different ttys. */
 /*                                                                            */
 /* Usage: $ queue -c shell_command -p simultaneous (default = 3) -v (verbose) */
+/*                -n (don't die with the last command and wait for new ones)  */
+/*                -h (display help)                                           */
 /*                                                                            */
-/* Example:                                                                   */
-/* $ queue -c "echo Hello1; sleep 10; echo Bye1" -p 2                         */
-/* $ queue -c "echo Hello2; sleep 10; echo Bye2"                              */
-/* $ queue -c "echo Hello3; sleep 10; echo Bye3"                              */
-/* $ queue -c "echo Hello4; sleep 10; echo Bye4"                              */
-/*                                                                            */
-/* The first 'queue' creates the queue, with 2 running slots. The two first   */
-/* commands are executed immediately, while the third is not executed until   */
-/* one of the two firsts ends, and so on. The first queue is alive as far as  */
-/* there are commands in queue or running. After that, the queue is removed.  */
-/*                                                                            */
-/* Future improvements/fixes:                                                 */
-/* - Circular queue (current only can receive X commands total)               */
-/* - Variable sized queues                                                    */
-/* - Stack execution instead of queue                                         */
-/* - Named queues in system                                                   */
-/* - Queues with priority                                                     */
+/* For more information: https://github.com/josepllberral/queue               */
 /*                                                                            */
 /******************************************************************************/
 
@@ -52,6 +38,7 @@ int shutdown;
 
 int qcount;
 char* queue[QUEUE_SIZE];
+int wcount;
 int workerReady[QUEUE_SIZE];
 
 int fq;
@@ -87,9 +74,10 @@ void *threadCheckQueue ()
 		int l = read(fq, buffer, sizeof(buffer));
 		if (l > 0)
 		{
-			if (verbose) fprintf(stderr, "[INFO] Received command \"%s\". OQ: %d, QC: %d\n", buffer, onqueue, qcount);
+			if (verbose) fprintf(stderr, "[INFO] Received command \"%s\" from other queue call\n", buffer);
+			if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, wcount, qcount);
 
-			while (mutex != 0); // Wait your turn
+			while (mutex != 0);
 			mutex = 1;
 
 			if (qcount < QUEUE_SIZE)
@@ -105,7 +93,7 @@ void *threadCheckQueue ()
 
 			mutex = 0;
 		}
-		sleep(1); // Do not "busywait" too much
+		sleep(1);
 	}
 }
 
@@ -118,7 +106,7 @@ void *threadWorker (void * args)
 	if (verbose) fprintf(stderr, "[INFO] Worker %d: %s\n",workerID,command);
 	system(command);
 
-	while (mutex != 0); // Wait your turn
+	while (mutex != 0);
 	mutex = 1;
 
 	workerReady[workerID] = 1;
@@ -129,20 +117,17 @@ void *threadWorker (void * args)
 
 int main ( int argc, char** argv )
 {
-	if (argc < 2)
-	{
-		printf("Usage: %s command [-p #consumers] [-v]\nDefault #consumers = 3", argv[0]);
-		return -1;
-	}
-
+	/* Arguments from CLI */
 	int consumers = 3;
 	char* command = "echo Hello!";
+	int nofinish = 0;
+	int showhelp = 0;
 	verbose = 0;
 
 	int c;
 	opterr = 0;
 
-	while ((c = getopt (argc, argv, "c:vp:")) != -1)
+	while ((c = getopt (argc, argv, "c:vp:nh")) != -1)
 	{
 		switch (c)
 		{
@@ -152,20 +137,39 @@ int main ( int argc, char** argv )
 			case 'v':
 				verbose = 1;
 				break;
+			case 'n':
+				nofinish = 1;
+				break;
+			case 'h':
+				showhelp = 1;
+				break;
 			case 'p':
 				consumers = atoi(optarg);
 				break;
 			case '?':
 				if (optopt == 'p')
-					fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+					fprintf (stderr, "Option -%c requires an argument\n", optopt);
 				else if (isprint (optopt))
-					fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+					fprintf (stderr, "Unknown option `-%c'\n", optopt);
 				else
-					fprintf (stderr,"Unknown option character `\\x%x'.\n",optopt);
+					fprintf (stderr,"Unknown option character `\\x%x'\n",optopt);
 				return 1;
 			default:
 				abort ();
 		}
+	}
+
+	if (argc < 2 || showhelp)
+	{
+		fprintf(stderr, "Usage: %s -c command [options]\n\n", argv[0]);
+		fprintf(stderr, "          -c command Command to execute or put in queue.\n");
+		fprintf(stderr, "          -p <value> Maximum number of commands simultaneuos.\n");
+		fprintf(stderr, "          -v         Display information and debug messages.\n");
+		fprintf(stderr, "          -n         Queue is alive and ready after finishing current commands.\n");
+		fprintf(stderr, "          -h         Show this help and finish.\n");
+		fprintf(stderr, "\nMain site for '%s': https://github.com/josepllberral/queue\n",argv[0]);
+
+		if (argc < 2) return -1; else return 0;
 	}
 
 	if (signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr, "[WARNING] Can't catch SIGTERM\n");
@@ -181,7 +185,7 @@ int main ( int argc, char** argv )
 
 		if (kill(atoi(buffer), 0) != 0)
 		{
-			if (verbose) fprintf(stderr, "[INFO] Found old queue %d. Removing...\n", atoi(buffer));
+			if (verbose) fprintf(stderr, "[INFO] Found dead queue at [%d]. Removing...\n", atoi(buffer));
 			unlink(fqname);
 			remove(fpname);
 		}
@@ -193,7 +197,7 @@ int main ( int argc, char** argv )
 			sprintf(buffsend,"%s",command);
 			write(fq, buffsend, sizeof(buffsend));
 			close(fq);
-			fprintf(stderr, "[INFO] Sent command \"%s\" to running queue\n", command);
+			fprintf(stderr, "[INFO] Sent command \"%s\" to running queue at [%d]\n", command, atoi(buffer));
 
 			return 0;
 		}
@@ -211,6 +215,7 @@ int main ( int argc, char** argv )
 	/* Initialize variables */
 	mutex = 0;		
 	working = 0;
+	wcount = 0;
 	onqueue = 0;
 	qcount = 0;
 	shutdown = 0;
@@ -220,34 +225,34 @@ int main ( int argc, char** argv )
 	qcount++;
 	onqueue++;
 
-	/* Lauch Threads */
+	/* Launch Threads */
 	pthread_t threadChecker;
 	pthread_create(&(threadChecker),NULL,threadCheckQueue,NULL);
 
         pthread_t workers[QUEUE_SIZE];	// TODO - Create circular list!
-	int workerID = 0;
-
-	while (onqueue > 0 || working > 0)
+	
+	while (nofinish || (onqueue > 0 || working > 0))
 	{
-		while (mutex != 0); // Wait your turn
+		while (mutex != 0);
 		mutex = 1;
 
 		while ((working < consumers) && (onqueue > 0))
 		{
-			workerReady[workerID] = 0;
+			workerReady[wcount] = 0;
 			working++;
 			onqueue--;
 
-			if (verbose) fprintf(stderr, "[INFO] Executing command \"%s\" from queue. WK: %d, OC: %d, WI: %d, QC: %d\n", queue[workerID], working, onqueue, workerID+1, qcount);
+			if (verbose) fprintf(stderr, "[INFO] Executing command \"%s\" from queue\n",queue[wcount]);
+			if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, wcount+1, qcount);
 
 			params p;
-			p.workerID = workerID;
-			p.command = queue[workerID];
-			pthread_create(&(workers[workerID++]),NULL,threadWorker,&p);
+			p.workerID = wcount;
+			p.command = queue[wcount];
+			pthread_create(&(workers[wcount++]),NULL,threadWorker,&p);
 		}
 
 		int i = 0;
-		for (i = 0; i < workerID; i++)
+		for (i = 0; i < wcount; i++)
 		{
 			if (workerReady[i] == 1)
 			{
@@ -255,13 +260,13 @@ int main ( int argc, char** argv )
 				workerReady[i] = 0;
 				working--;
 
-				if (verbose) fprintf(stderr, "[INFO] Cleaning command \"%s\" from queue. WK: %d, OC: %d, WI: %d, QC: %d\n", queue[i], working, onqueue, workerID, qcount);
+				if (verbose) fprintf(stderr, "[INFO] Cleaning command \"%s\" from queue\n", queue[i]);
+				if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, wcount, qcount);
 			}
 		}
 
 		mutex = 0;
-		if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, workerID, qcount);
-		sleep(1); // Do not "busywait" too much
+		sleep(1);
 	}
 	shutdown = 1;
 	pthread_join(threadChecker,NULL);
