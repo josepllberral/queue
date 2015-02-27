@@ -31,13 +31,14 @@
 
 #define QUEUE_SIZE 256
 
-int mutex;
+pthread_mutex_t lock;
+
 int working;
 int onqueue;
 int shutdown;
 
 int qcount;
-char* queue[QUEUE_SIZE];
+char queue[QUEUE_SIZE][1024];
 int wcount;
 int workerReady[QUEUE_SIZE];
 
@@ -74,15 +75,11 @@ void *threadCheckQueue ()
 		int l = read(fq, buffer, sizeof(buffer));
 		if (l > 0)
 		{
+			pthread_mutex_lock(&lock);
 			if (verbose) fprintf(stderr, "[INFO] Received command \"%s\" from other queue call\n", buffer);
-			if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, wcount, qcount);
-
-			while (mutex != 0);
-			mutex = 1;
-
 			if (qcount < QUEUE_SIZE)
 			{
-				queue[qcount] = buffer;
+				sprintf(queue[qcount],"%s",buffer);
 				qcount++;
 				onqueue++;
 			}
@@ -91,7 +88,13 @@ void *threadCheckQueue ()
 				fprintf(stderr, "[ERROR] Exceded number of submissions :(");
 			}
 
-			mutex = 0;
+			int i = 0;
+			for (i=0;i <qcount; i++)
+			{
+				fprintf(stderr, "QUEUE %d: %s\n", i,queue[i]);
+			}
+
+			pthread_mutex_unlock(&lock);
 		}
 		sleep(1);
 	}
@@ -106,12 +109,10 @@ void *threadWorker (void * args)
 	if (verbose) fprintf(stderr, "[INFO] Worker %d: %s\n",workerID,command);
 	system(command);
 
-	while (mutex != 0);
-	mutex = 1;
-
+	pthread_mutex_lock(&lock);
 	workerReady[workerID] = 1;
+	pthread_mutex_unlock(&lock);
 
-	mutex = 0;
 	if (verbose) fprintf(stderr, "[INFO] Worker %d: Finished\n",workerID);
 }
 
@@ -162,11 +163,11 @@ int main ( int argc, char** argv )
 	if (argc < 2 || showhelp)
 	{
 		fprintf(stderr, "Usage: %s -c command [options]\n\n", argv[0]);
-		fprintf(stderr, "          -c command Command to execute or put in queue.\n");
-		fprintf(stderr, "          -p <value> Maximum number of commands simultaneuos.\n");
-		fprintf(stderr, "          -v         Display information and debug messages.\n");
+		fprintf(stderr, "          -c command Command to be executed or to be put in queue.\n");
+		fprintf(stderr, "          -p <value> Maximum number of simultaneuos commands.\n");
+		fprintf(stderr, "          -v         Displays information and debug messages.\n");
 		fprintf(stderr, "          -n         Queue is alive and ready after finishing current commands.\n");
-		fprintf(stderr, "          -h         Show this help and finish.\n");
+		fprintf(stderr, "          -h         Shows this help and finishes.\n");
 		fprintf(stderr, "\nMain site for '%s': https://github.com/josepllberral/queue\n",argv[0]);
 
 		if (argc < 2) return -1; else return 0;
@@ -213,7 +214,6 @@ int main ( int argc, char** argv )
 	if (fq == -1) fprintf(stderr, "[ERROR] Could not open the queue!\n");
 
 	/* Initialize variables */
-	mutex = 0;		
 	working = 0;
 	wcount = 0;
 	onqueue = 0;
@@ -221,7 +221,7 @@ int main ( int argc, char** argv )
 	shutdown = 0;
 
 	/* Put command on queue, as the 1st work */
-	queue[qcount] = command;
+	sprintf(queue[qcount],"%s",command);
 	qcount++;
 	onqueue++;
 
@@ -230,11 +230,16 @@ int main ( int argc, char** argv )
 	pthread_create(&(threadChecker),NULL,threadCheckQueue,NULL);
 
         pthread_t workers[QUEUE_SIZE];	// TODO - Create circular list!
+
+	if (pthread_mutex_init(&lock, NULL) != 0)
+	{
+		printf("[ERROR] Mutex init failed\n");
+		return 1;
+	}
 	
 	while (nofinish || (onqueue > 0 || working > 0))
 	{
-		while (mutex != 0);
-		mutex = 1;
+		pthread_mutex_lock(&lock);
 
 		while ((working < consumers) && (onqueue > 0))
 		{
@@ -265,11 +270,13 @@ int main ( int argc, char** argv )
 			}
 		}
 
-		mutex = 0;
+		pthread_mutex_unlock(&lock);
 		sleep(1);
 	}
 	shutdown = 1;
 	pthread_join(threadChecker,NULL);
+
+	pthread_mutex_destroy(&lock);
 
 	close(fq);
 	unlink(fqname);

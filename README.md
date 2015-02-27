@@ -9,14 +9,14 @@ Author: Josep Ll. Berral-Garcia
 License: GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007
 
 ## Description
-Executes a command, allowing to queue others after it, or running up to _k_ simultaneous and queuing the next ones. Sending commands to queue while another queue exists, send the new ones to the existing queue, also from different ttys.
+Executes a command, allowing to queue others after it, or running up to _k_ simultaneous and queuing the next ones. Sending commands to queue while another queue exists will dispatch those to the existing queue, also from different ttys.
 
 ## Usage
 ```
 $ queue -c shell_command [OPTIONS]
 
--c command Command to execute or to put in queue.
--p <value> Maximum number of commands simultaneuos.
+-c command Command to be executed or to be put in queue.
+-p <value> Maximum number of simultaneuos commands.
 -v         Displays information and debug messages.
 -n         Queue is alive and ready after finishing current commands.
 -h         Shows the help message and finishes.
