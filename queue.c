@@ -87,13 +87,6 @@ void *threadCheckQueue ()
 			{
 				fprintf(stderr, "[ERROR] Exceded number of submissions :(");
 			}
-
-			int i = 0;
-			for (i=0;i <qcount; i++)
-			{
-				fprintf(stderr, "QUEUE %d: %s\n", i,queue[i]);
-			}
-
 			pthread_mutex_unlock(&lock);
 		}
 		sleep(1);
@@ -120,7 +113,7 @@ int main ( int argc, char** argv )
 {
 	/* Arguments from CLI */
 	int consumers = 3;
-	char* command = "echo Hello!";
+	char* command = "echo Hello";
 	int nofinish = 0;
 	int showhelp = 0;
 	verbose = 0;
@@ -211,7 +204,11 @@ int main ( int argc, char** argv )
 
 	mkfifo(fqname, 0600);
 	fq = open(fqname, O_RDONLY | O_NONBLOCK);
-	if (fq == -1) fprintf(stderr, "[ERROR] Could not open the queue!\n");
+	if (fq == -1)
+	{
+		fprintf(stderr, "[ERROR] Could not create the queue!\n");
+		return 1;
+	}
 
 	/* Initialize variables */
 	working = 0;
@@ -233,7 +230,7 @@ int main ( int argc, char** argv )
 
 	if (pthread_mutex_init(&lock, NULL) != 0)
 	{
-		printf("[ERROR] Mutex init failed\n");
+		fprintf(stderr, "[ERROR] Mutex init failed\n");
 		return 1;
 	}
 	
