@@ -46,4 +46,5 @@ $ gcc queue.c -o queue -pthread
 - Stack execution instead of queue
 - Named queues in system
 - Queues with priority
+- Loggin commands
 

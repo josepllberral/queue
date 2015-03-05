@@ -29,7 +29,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define QUEUE_SIZE 256
+#define QUEUE_SIZE 1024
 
 pthread_mutex_t lock;
 
@@ -38,7 +38,7 @@ int onqueue;
 int shutdown;
 
 int qcount;
-char queue[QUEUE_SIZE][1024];
+char queue[QUEUE_SIZE][2048];
 int wcount;
 int workerReady[QUEUE_SIZE];
 
@@ -70,8 +70,8 @@ void *threadCheckQueue ()
 
 	while (shutdown == 0)
 	{
-		char buffer[1024];
-		buffer[1023] = '\0';
+		char buffer[2048];
+		buffer[2047] = '\0';
 		int l = read(fq, buffer, sizeof(buffer));
 		if (l > 0)
 		{
@@ -187,7 +187,7 @@ int main ( int argc, char** argv )
 		{
 			/* Commit command to existing queue */
 			fq = open(fqname, O_WRONLY);
-			char buffsend[1024];
+			char buffsend[2048];
 			sprintf(buffsend,"%s",command);
 			write(fq, buffsend, sizeof(buffsend));
 			close(fq);
