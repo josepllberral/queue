@@ -29,9 +29,13 @@
 #include <unistd.h>
 #include <signal.h>
 
+#include <sys/types.h>
+#include <sys/wait.h>
+
 #define QUEUE_SIZE 1024
 
 pthread_mutex_t lock;
+pthread_mutex_t lock_w;
 
 int working;
 int onqueue;
@@ -43,8 +47,11 @@ int wcount;
 int workerReady[QUEUE_SIZE];
 
 int fq;
-char* fqname = "/run/shm/queue.q";
-char* fpname = "/run/shm/queue.pid";
+char* fdname = "/run/shm/";
+char* fqsuffix = "queue.q";
+char* fpsuffix = "queue.pid";
+char fqname[256];
+char fpname[256];
 
 int verbose;
 
@@ -95,12 +102,31 @@ void *threadCheckQueue ()
 
 void *threadWorker (void * args)
 {
+	pthread_mutex_lock(&lock_w);
 	params * p = (params*)args;
 	int workerID = p->workerID;
 	char* command = p->command;
+	pthread_mutex_unlock(&lock_w);
 
 	if (verbose) fprintf(stderr, "[INFO] Worker %d: %s\n",workerID,command);
-	system(command);
+
+	pid_t c_pid;
+	int status;
+
+	c_pid = fork();                                                                                                                                         
+	if (c_pid == 0)
+	{
+		execl("/bin/bash", "bash", "-c", command, NULL);
+		_exit(127);
+	}
+	else if (c_pid > 0)
+	{
+		waitpid(c_pid,&status,0);
+	}
+	else
+	{
+		if (verbose) fprintf(stderr, "[ERROR] Worker %d: Failed!\n",workerID);
+	}
 
 	pthread_mutex_lock(&lock);
 	workerReady[workerID] = 1;
@@ -118,10 +144,12 @@ int main ( int argc, char** argv )
 	int showhelp = 0;
 	verbose = 0;
 
+	int debug = 0;
+
 	int c;
 	opterr = 0;
 
-	while ((c = getopt (argc, argv, "c:vp:nh")) != -1)
+	while ((c = getopt (argc, argv, "c:vp:nhd")) != -1)
 	{
 		switch (c)
 		{
@@ -140,6 +168,10 @@ int main ( int argc, char** argv )
 			case 'p':
 				consumers = atoi(optarg);
 				break;
+			case 'd':
+				debug = 1;
+				verbose = 1;
+				break;
 			case '?':
 				if (optopt == 'p')
 					fprintf (stderr, "Option -%c requires an argument\n", optopt);
@@ -151,6 +183,13 @@ int main ( int argc, char** argv )
 			default:
 				abort ();
 		}
+	}
+
+	if (debug)
+	{
+		FILE* fp = fopen("/tmp/queue-debug.log","w");
+		dup2(fileno(fp), STDERR_FILENO);
+		fclose(fp);
 	}
 
 	if (argc < 2 || showhelp)
@@ -167,6 +206,10 @@ int main ( int argc, char** argv )
 	}
 
 	if (signal(SIGTERM, sig_handler) == SIG_ERR) fprintf(stderr, "[WARNING] Can't catch SIGTERM\n");
+
+	/* Declare names for control file & pipe */
+	sprintf(fqname,"%s%d-%s",fdname,geteuid(),fqsuffix);
+	sprintf(fpname,"%s%d-%s",fdname,geteuid(),fpsuffix);
 
 	if (access(fqname,F_OK) != -1)
 	{
@@ -228,16 +271,16 @@ int main ( int argc, char** argv )
 
         pthread_t workers[QUEUE_SIZE];	// TODO - Create circular list!
 
-	if (pthread_mutex_init(&lock, NULL) != 0)
+	if (pthread_mutex_init(&lock, NULL) != 0 || pthread_mutex_init(&lock_w, NULL) != 0)
 	{
 		fprintf(stderr, "[ERROR] Mutex init failed\n");
 		return 1;
 	}
 	
-	while (nofinish || (onqueue > 0 || working > 0))
+	int keep_looping = 1;
+	while (nofinish || keep_looping)
 	{
 		pthread_mutex_lock(&lock);
-
 		while ((working < consumers) && (onqueue > 0))
 		{
 			workerReady[wcount] = 0;
@@ -250,7 +293,15 @@ int main ( int argc, char** argv )
 			params p;
 			p.workerID = wcount;
 			p.command = queue[wcount];
-			pthread_create(&(workers[wcount++]),NULL,threadWorker,&p);
+
+			pthread_create(&(workers[wcount]),NULL,threadWorker,&p);
+			sleep(1);	// FIXME - In some occasions, the pthread reads "p" after the memory position for "p" is removed
+					// and rewritten with the new parameters of the next loop. The sleep and the following mutex is
+					// to let the pthread get the token and read "p" properly.
+
+			pthread_mutex_lock(&lock_w);
+			wcount++;
+			pthread_mutex_unlock(&lock_w);
 		}
 
 		int i = 0;
@@ -266,6 +317,8 @@ int main ( int argc, char** argv )
 				if (verbose) fprintf(stderr, "[INFO] WK: %d, OC: %d, WI: %d, QC: %d\n", working, onqueue, wcount, qcount);
 			}
 		}
+
+		keep_looping = (onqueue > 0 || working > 0);
 
 		pthread_mutex_unlock(&lock);
 		sleep(1);

@@ -32,7 +32,7 @@ $ queue -c "echo Command4; sleep 10; echo EndCommand4"
 
 The first 'queue' creates the queue, with 2 running slots. The two first commands are executed immediately, while the third is not executed until one of the two firsts ends, and so on. The first queue is alive as far as there are commands in queue or running. After that, the queue is removed.
 
-If option "-n" is added to the first command, the queue will not end and will remain listening for new commands, or expecting a SIGTERM (please, be polite).
+If option "-n" is added to the first command, the queue will not end and will remain listening for new commands, or expecting a SIGTERM (a SIGKILL would leave a dead queue named-pipe).
 
 ## Compile
 Classical gcc with pthreads
@@ -47,4 +47,7 @@ $ gcc queue.c -o queue -pthread
 - Named queues in system
 - Queues with priority
 - Loggin commands
+
+## Change Log:
+- 0.1 Initial version
 
