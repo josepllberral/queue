@@ -33,6 +33,8 @@
 #include <sys/wait.h>
 
 #define QUEUE_SIZE 1024
+#define WORD_SIZE 4096
+
 
 pthread_mutex_t lock;
 pthread_mutex_t lock_w;
@@ -42,7 +44,7 @@ int onqueue;
 int shutdown;
 
 int qcount;
-char queue[QUEUE_SIZE][2048];
+char queue[QUEUE_SIZE][WORD_SIZE];
 int wcount;
 int workerReady[QUEUE_SIZE];
 
@@ -77,8 +79,8 @@ void *threadCheckQueue ()
 
 	while (shutdown == 0)
 	{
-		char buffer[2048];
-		buffer[2047] = '\0';
+		char buffer[WORD_SIZE];
+		buffer[WORD_SIZE-1] = '\0';
 		int l = read(fq, buffer, sizeof(buffer));
 		if (l > 0)
 		{
@@ -230,7 +232,7 @@ int main ( int argc, char** argv )
 		{
 			/* Commit command to existing queue */
 			fq = open(fqname, O_WRONLY);
-			char buffsend[2048];
+			char buffsend[WORD_SIZE];
 			sprintf(buffsend,"%s",command);
 			write(fq, buffsend, sizeof(buffsend));
 			close(fq);
